@@ -670,3 +670,17 @@ theorem conjecture_two {n : ℕ} (hn : 0 < n) :
       have := (caseA_gen hn Nat.prime_two h).2.2
       generalize a n (k + 0) / d n (k + 0) = q at this ⊢
       omega⟩
+
+/-! ## 9. 추측의 남은 내용은 홀수 소수뿐 -/
+
+/-- p = 2 는 `conjecture_two` 로 해결되었으므로, 원래 추측은 홀수 소수에 대한 명제와 동치다. -/
+theorem conjecture_iff_odd : Conjecture ↔
+    ∀ n : ℕ, 0 < n → ∀ p : ℕ, p.Prime → p ≠ 2 →
+      ∀ B K : ℕ, ∃ k ≥ K, B < padicValNat p (d n k) := by
+  constructor
+  · intro h n hn p hp _
+    exact h n hn p hp
+  · intro h n hn p hp
+    by_cases h2 : p = 2
+    · subst h2; exact conjecture_two hn
+    · exact h n hn p hp h2
