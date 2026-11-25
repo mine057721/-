@@ -12,6 +12,13 @@ import Mathlib
 
 Lean 4.37.0-rc1 + Mathlib master (2026-11) 에서 `sorry` 없이 컴파일됨.
 `a_one_fifty` 만 `native_decide` (컴파일러 신뢰) 를 쓴다.
+
+## 결과 요약
+* `conjecture_two` (무조건): 모든 n ≥ 1 에서 limsup v₂(d_k) = ∞. 즉 추측은 p = 2 에서 참.
+* `not_conjecture_of_condC`: 조건 (C) 이면 n = 1, p = 7 이 반례.
+* `not_conjecture_of_absorbed`: 더 약한 "홀수 부분 흡수" 가정으로도 반례 (p ∤ 2^j+1 인 p).
+* `conjecture_needs_entries` (무조건): 추측이 참이면 모든 n, p 에 대해
+  p ∣ a_k/d_k + 1 이 무한히 자주 일어나야 한다.
 -/
 
 open Nat
@@ -266,3 +273,316 @@ theorem conjecture_needs_absorption_breaks (h : Conjecture) {n : ℕ} (hn : 0 < 
   by_contra hne
   push Not at hne
   exact not_conjecture_of_absorbed hn (by norm_num) seven_not_dvd_two_pow_add_one hne h
+
+/-! ## 7. 정확한 메커니즘: p 가 들어오는 통로는 q_k + 1 뿐
+
+q_k = a_k / d_k 라 하면 a_{k+1} = d_k · (q_k + 1) 이므로
+v_p(a_{k+1}) = v_p(d_k) + v_p(q_k + 1) ≤ v_p(a_k) + v_p(q_k + 1).
+즉 p ∤ q_k + 1 이면 p-지수는 늘지 않는다. -/
+
+theorem d_dvd_a (n k : ℕ) : d n k ∣ a n k := Nat.gcd_dvd_left _ _
+
+theorem a_succ_eq (n k : ℕ) : a n (k + 1) = d n k * (a n k / d n k + 1) := by
+  have h1 : a n (k + 1) = a n k + d n k := by rw [a_succ]; rfl
+  rw [h1, Nat.mul_add, Nat.mul_div_cancel' (d_dvd_a n k), Nat.mul_one]
+
+/-- p ∤ q_k + 1 이면 v_p(a_{k+1}) ≤ v_p(a_k). -/
+theorem multiplicity_succ_le {n p k : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (h : ¬ p ∣ a n k / d n k + 1) :
+    multiplicity p (a n (k + 1)) ≤ multiplicity p (a n k) := by
+  have := Fact.mk hp
+  have ha0 : a n k ≠ 0 := (a_pos hn k).ne'
+  have hd0 : d n k ≠ 0 := (Nat.gcd_pos_of_pos_left _ (a_pos hn k)).ne'
+  rw [a_succ_eq, Nat.multiplicity_mul hd0 (Nat.succ_ne_zero _),
+    multiplicity_eq_zero_of_not_dvd h, Nat.add_zero]
+  exact (multiplicity_dvd_iff_le ha0).1 ((pow_multiplicity_dvd _ _).trans (d_dvd_a n k))
+
+/-- 정리: 어떤 n, p, K 에 대해 k ≥ K 에서 항상 p ∤ a_k/d_k + 1 이면 추측은 거짓이다.
+(`not_conjecture_of_absorbed` 는 q_k 가 2의 거듭제곱인 특수한 경우.) -/
+theorem not_conjecture_of_no_entry {n p K : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (h : ∀ k ≥ K, ¬ p ∣ a n k / d n k + 1) : ¬ Conjecture := by
+  have := Fact.mk hp
+  intro hC
+  have hbound : ∀ j, multiplicity p (a n (K + j)) ≤ multiplicity p (a n K) := by
+    intro j
+    induction j with
+    | zero => exact le_rfl
+    | succ j ih =>
+      rw [← Nat.add_assoc]
+      exact (multiplicity_succ_le hn hp (h _ (by omega))).trans ih
+  obtain ⟨k, hk, hB⟩ := hC n hn p hp (multiplicity p (a n K)) K
+  obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le hk
+  have hle : multiplicity p (d n (K + j)) ≤ multiplicity p (a n (K + j)) :=
+    (multiplicity_dvd_iff_le (a_pos hn _).ne').1
+      ((pow_multiplicity_dvd _ _).trans (d_dvd_a _ _))
+  rw [padicValNat_def] at hB
+  have := hbound j
+  omega
+
+/-- 따름정리 (필요조건): 추측이 참이면, 모든 n 과 모든 소수 p 에 대해
+p ∣ a_k/d_k + 1 인 k 가 무한히 많아야 한다. -/
+theorem conjecture_needs_entries (h : Conjecture) {n p : ℕ} (hn : 0 < n) (hp : p.Prime) :
+    ∀ K : ℕ, ∃ k ≥ K, p ∣ a n k / d n k + 1 := by
+  intro K
+  by_contra hne
+  push Not at hne
+  exact not_conjecture_of_no_entry hn hp (fun k hk => hne k hk) h
+
+/-! ## 8. p = 2 에서는 추측이 (무조건) 참이다
+
+v₂(d_k) ≤ B 가 계속된다고 하자.
+* v₂(a_k) ≤ v₂(s_k!) 이면 q_k = a_k/d_k 가 홀수라 q_k+1 이 짝수 → v₂(a) 가 1 이상 증가.
+  이런 단계는 B+1 번 넘게 연속될 수 없다.
+* 그렇지 않으면 v₂(s_k!) ≤ v₂(d_k) ≤ B 이므로 s_k ≤ 2B+1.
+* s(x+y) ≤ s(x)+s(y) 로 그 사이 단계의 자릿수 합도 상수 C 로 유계 → d_k ≤ C!.
+* 증가량이 유계인 증가 수열은 [10^N − C!, 10^N) 에 들어가야 하는데,
+  그곳의 수는 자릿수 합이 9(N − L) 이상이라 모순. -/
+
+theorem s_eq (x : ℕ) : s x = x % 10 + s (x / 10) := by
+  rcases Nat.eq_zero_or_pos x with rfl | hx
+  · simp [s]
+  · unfold s
+    rw [Nat.digits_def' (by norm_num) hx, List.sum_cons]
+
+theorem s_zero : s 0 = 0 := by simp [s]
+
+theorem s_le_one {c : ℕ} (h : c ≤ 1) : s c = c := by
+  rcases (show c = 0 ∨ c = 1 by omega) with rfl | rfl
+  · exact s_zero
+  · rw [s_eq]; simp [s_zero]
+
+/-- 자릿수 합의 열등가법성. -/
+theorem s_add_le_aux : ∀ N x y : ℕ, x + y ≤ N → s (x + y) ≤ s x + s y := by
+  intro N
+  induction N with
+  | zero =>
+    intro x y h
+    obtain rfl : x = 0 := by omega
+    obtain rfl : y = 0 := by omega
+    simp [s_zero]
+  | succ N ih =>
+    intro x y h
+    rcases Nat.eq_zero_or_pos (x + y) with h0 | hpos
+    · obtain rfl : x = 0 := by omega
+      obtain rfl : y = 0 := by omega
+      simp [s_zero]
+    · obtain ⟨c, hc⟩ : ∃ c, c = (x % 10 + y % 10) / 10 := ⟨_, rfl⟩
+      have hq : (x + y) / 10 = (x / 10 + y / 10) + c := by omega
+      have hr : (x + y) % 10 = (x % 10 + y % 10) % 10 := by omega
+      have hsc : s c = c := s_le_one (by omega)
+      have h1 := ih (x / 10 + y / 10) c (by omega)
+      have h2 := ih (x / 10) (y / 10) (by omega)
+      rw [s_eq (x + y), hq, hr, s_eq x, s_eq y]
+      omega
+
+theorem s_add_le (x y : ℕ) : s (x + y) ≤ s x + s y := s_add_le_aux _ x y le_rfl
+
+theorem s_div_pow_le (L x : ℕ) : s (x / 10 ^ L) ≤ s x := by
+  induction L generalizing x with
+  | zero => simp
+  | succ L ih =>
+    rw [pow_succ, ← Nat.div_div_eq_div_mul]
+    have := s_eq (x / 10 ^ L)
+    have := ih x
+    omega
+
+theorem s_pow_sub_one (M : ℕ) : s (10 ^ M - 1) = 9 * M := by
+  induction M with
+  | zero => simp [s_zero]
+  | succ M ih =>
+    have hP : 1 ≤ 10 ^ M := Nat.one_le_pow _ _ (by norm_num)
+    rw [s_eq, pow_succ]
+    have h1 : (10 ^ M * 10 - 1) % 10 = 9 := by omega
+    have h2 : (10 ^ M * 10 - 1) / 10 = 10 ^ M - 1 := by omega
+    rw [h1, h2, ih]
+    ring
+
+/-- 10^N 바로 아래 수는 자릿수 합이 크다. -/
+theorem s_ge_of_near {x N L : ℕ} (hL : L ≤ N) (h1 : 10 ^ N - 10 ^ L ≤ x) (h2 : x < 10 ^ N) :
+    9 * (N - L) ≤ s x := by
+  have hN : 10 ^ N = 10 ^ (N - L) * 10 ^ L := by rw [← pow_add, Nat.sub_add_cancel hL]
+  have hQ : 0 < 10 ^ L := by positivity
+  have hP : 1 ≤ 10 ^ (N - L) := Nat.one_le_pow _ _ (by norm_num)
+  have hdiv : x / 10 ^ L = 10 ^ (N - L) - 1 := by
+    apply Nat.div_eq_of_lt_le
+    · rw [Nat.sub_mul, one_mul, ← hN]; exact h1
+    · rw [Nat.sub_add_cancel hP, ← hN]; exact h2
+  calc 9 * (N - L) = s (10 ^ (N - L) - 1) := (s_pow_sub_one _).symm
+    _ = s (x / 10 ^ L) := by rw [hdiv]
+    _ ≤ s x := s_div_pow_le L x
+
+theorem two_pow_dvd_factorial (m : ℕ) : 2 ^ m ∣ (2 * m)! := by
+  induction m with
+  | zero => simp
+  | succ m ih =>
+    have h : (2 * (m + 1))! = (2 * (m + 1)) * ((2 * m + 1) * (2 * m)!) := by
+      rw [show 2 * (m + 1) = (2 * m + 1) + 1 by ring, Nat.factorial_succ, Nat.factorial_succ]
+    rw [h, pow_succ, mul_comm (2 ^ m) 2]
+    exact Nat.mul_dvd_mul (Dvd.intro _ rfl) (Dvd.dvd.mul_left ih _)
+
+theorem small_of_v2_le {S B : ℕ} (h : multiplicity 2 S ! ≤ B) : S ≤ 2 * B + 1 := by
+  by_contra hlt
+  have := Fact.mk Nat.prime_two
+  have h1 : 2 ^ (B + 1) ∣ S ! :=
+    (two_pow_dvd_factorial (B + 1)).trans (Nat.factorial_dvd_factorial (by omega))
+  have := (multiplicity_dvd_iff_le (Nat.factorial_ne_zero S)).1 h1
+  omega
+
+theorem d_pos {n : ℕ} (hn : 0 < n) (k : ℕ) : 0 < d n k :=
+  Nat.gcd_pos_of_pos_left _ (a_pos hn k)
+
+theorem a_succ_add (n k : ℕ) : a n (k + 1) = a n k + d n k := by rw [a_succ]; rfl
+
+theorem a_ge {n : ℕ} (hn : 0 < n) (k : ℕ) : k ≤ a n k := by
+  induction k with
+  | zero => exact Nat.zero_le _
+  | succ k ih => rw [a_succ_add]; have := d_pos hn k; omega
+
+/-- 경우 A: v₂(a) ≤ v₂(s!) 이면 v₂(a) 가 늘고, v₂(d) = v₂(a). -/
+theorem caseA_step {n k : ℕ} (hn : 0 < n)
+    (h : multiplicity 2 (a n k) ≤ multiplicity 2 (s (a n k))!) :
+    multiplicity 2 (a n k) + 1 ≤ multiplicity 2 (a n (k + 1)) ∧
+      multiplicity 2 (a n k) ≤ multiplicity 2 (d n k) := by
+  have := Fact.mk Nat.prime_two
+  have ha0 : a n k ≠ 0 := (a_pos hn k).ne'
+  have hd0 : d n k ≠ 0 := (d_pos hn k).ne'
+  have hdge : multiplicity 2 (a n k) ≤ multiplicity 2 (d n k) := by
+    have hdvd : 2 ^ multiplicity 2 (a n k) ∣ d n k :=
+      Nat.dvd_gcd (pow_multiplicity_dvd _ _) ((Nat.pow_dvd_pow 2 h).trans (pow_multiplicity_dvd _ _))
+    exact (multiplicity_dvd_iff_le hd0).1 hdvd
+  have hdle : multiplicity 2 (d n k) ≤ multiplicity 2 (a n k) :=
+    (multiplicity_dvd_iff_le ha0).1 ((pow_multiplicity_dvd _ _).trans (d_dvd_a n k))
+  have hq0 : multiplicity 2 (a n k / d n k) = 0 := by
+    rw [Nat.multiplicity_div_of_dvd (d_dvd_a n k)]; omega
+  have hqne : a n k / d n k ≠ 0 :=
+    (Nat.div_pos (Nat.le_of_dvd (a_pos hn k) (d_dvd_a n k)) (d_pos hn k)).ne'
+  have hodd : ¬ 2 ∣ a n k / d n k := by
+    intro h2
+    have := (multiplicity_dvd_iff_le (p := 2) (n := 1) hqne).1 (by simpa using h2)
+    omega
+  have h2q : 2 ^ 1 ∣ a n k / d n k + 1 := by simp; omega
+  have hv := (multiplicity_dvd_iff_le (Nat.succ_ne_zero _)).1 h2q
+  refine ⟨?_, hdge⟩
+  rw [a_succ_eq, Nat.multiplicity_mul hd0 (Nat.succ_ne_zero _)]
+  omega
+
+/-- 경우 B: v₂(s!) < v₂(a) 이면 v₂(s!) ≤ v₂(d). -/
+theorem caseB {n k : ℕ} (hn : 0 < n)
+    (h : multiplicity 2 (s (a n k))! < multiplicity 2 (a n k)) :
+    multiplicity 2 (s (a n k))! ≤ multiplicity 2 (d n k) := by
+  have := Fact.mk Nat.prime_two
+  have hdvd : 2 ^ multiplicity 2 (s (a n k))! ∣ d n k :=
+    Nat.dvd_gcd ((Nat.pow_dvd_pow 2 h.le).trans (pow_multiplicity_dvd _ _))
+      (pow_multiplicity_dvd _ _)
+  exact (multiplicity_dvd_iff_le (d_pos hn k).ne').1 hdvd
+
+/-- v₂(d) ≤ B 가 계속되면 B+2 단계 안에 반드시 경우 B 가 온다. -/
+theorem caseB_soon {n K B : ℕ} (hn : 0 < n) (H : ∀ k ≥ K, multiplicity 2 (d n k) ≤ B)
+    {k : ℕ} (hk : K ≤ k) :
+    ∃ i ≤ B + 1, multiplicity 2 (s (a n (k + i)))! < multiplicity 2 (a n (k + i)) := by
+  by_contra hne
+  push Not at hne
+  have hgrow : ∀ i ≤ B + 1, i ≤ multiplicity 2 (a n (k + i)) := by
+    intro i
+    induction i with
+    | zero => intro _; exact Nat.zero_le _
+    | succ i ih =>
+      intro hi
+      have h1 := (caseA_step hn (hne i (by omega))).1
+      have h2 := ih (by omega)
+      rw [← Nat.add_assoc]
+      omega
+  have h1 := hgrow (B + 1) le_rfl
+  have h2 := (caseA_step hn (hne (B + 1) le_rfl)).2
+  have h3 := H (k + (B + 1)) (by omega)
+  omega
+
+/-- 자릿수 합 한 단계 상한에 쓰는 단조 함수들. -/
+def Smax (t : ℕ) : ℕ := (Finset.range (t + 1)).sup s
+def Fb (t : ℕ) : ℕ := t + Smax (t !)
+def Gb (c : ℕ) : ℕ := (Finset.range (c + 1)).sup Fb
+
+theorem s_le_Smax {y t : ℕ} (h : y ≤ t) : s y ≤ Smax t :=
+  Finset.le_sup (f := s) (Finset.mem_range.2 (by omega))
+
+theorem Fb_le_Gb {t c : ℕ} (h : t ≤ c) : Fb t ≤ Gb c :=
+  Finset.le_sup (f := Fb) (Finset.mem_range.2 (by omega))
+
+theorem le_Gb (c : ℕ) : c ≤ Gb c := (Nat.le_add_right c _).trans (Fb_le_Gb le_rfl)
+
+theorem Gb_mono : Monotone Gb := fun _ _ h =>
+  Finset.sup_mono (Finset.range_mono (by omega))
+
+theorem le_Gb_iter (j x : ℕ) : x ≤ Gb^[j] x := by
+  induction j with
+  | zero => exact le_rfl
+  | succ j ih => rw [Function.iterate_succ_apply']; exact ih.trans (le_Gb _)
+
+theorem Gb_iter_mono {i m : ℕ} (h : i ≤ m) (x : ℕ) : Gb^[i] x ≤ Gb^[m] x := by
+  obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le h
+  rw [Function.iterate_add_apply]
+  exact Gb_mono.iterate i (le_Gb_iter j x)
+
+theorem s_succ_le (n k : ℕ) : s (a n (k + 1)) ≤ Fb (s (a n k)) := by
+  rw [a_succ_add]
+  have hd : d n k ≤ (s (a n k))! :=
+    Nat.le_of_dvd (Nat.factorial_pos _) (Nat.gcd_dvd_right _ _)
+  exact (s_add_le _ _).trans (Nat.add_le_add_left (s_le_Smax hd) _)
+
+theorem window {n k c : ℕ} (h : s (a n k) ≤ c) (j : ℕ) : s (a n (k + j)) ≤ Gb^[j] c := by
+  induction j with
+  | zero => simpa using h
+  | succ j ih =>
+    rw [← Nat.add_assoc, Function.iterate_succ_apply']
+    exact (s_succ_le n (k + j)).trans (Fb_le_Gb ih)
+
+theorem S_bound {n K B : ℕ} (hn : 0 < n) (H : ∀ k ≥ K, multiplicity 2 (d n k) ≤ B) :
+    ∀ k ≥ K + (B + 1), s (a n k) ≤ Gb^[B + 1] (2 * B + 1) := by
+  intro k hk
+  obtain ⟨i, hi, hcase⟩ := caseB_soon hn H (k := k - (B + 1)) (by omega)
+  have hv := caseB hn hcase
+  have hd := H (k - (B + 1) + i) (by omega)
+  have hS : s (a n (k - (B + 1) + i)) ≤ 2 * B + 1 := small_of_v2_le (by omega)
+  have hw := window hS (B + 1 - i)
+  have heq : k - (B + 1) + i + (B + 1 - i) = k := by omega
+  rw [heq] at hw
+  exact hw.trans (Gb_iter_mono (by omega) _)
+
+/-- **정리 (무조건)**: 모든 n ≥ 1 에 대해 limsup_{k→∞} v₂(d_k) = ∞.
+즉 원래 추측은 p = 2 에서 참이다. -/
+theorem conjecture_two {n : ℕ} (hn : 0 < n) :
+    ∀ B K : ℕ, ∃ k ≥ K, B < padicValNat 2 (d n k) := by
+  intro B K
+  by_contra hne
+  push Not at hne
+  have H : ∀ k ≥ K, multiplicity 2 (d n k) ≤ B := fun k hk => by
+    rw [← padicValNat_def]; exact hne k hk
+  obtain ⟨K0, hK0⟩ : ∃ K0, K0 = K + (B + 1) := ⟨_, rfl⟩
+  obtain ⟨C, hC⟩ : ∃ C, C = Gb^[B + 1] (2 * B + 1) := ⟨_, rfl⟩
+  have hS : ∀ k ≥ K0, s (a n k) ≤ C := fun k hk => hC ▸ S_bound hn H k (hK0 ▸ hk)
+  have hD : ∀ k ≥ K0, d n k ≤ C ! := fun k hk =>
+    (Nat.le_of_dvd (Nat.factorial_pos _) (Nat.gcd_dvd_right _ _)).trans
+      (Nat.factorial_le (hS k hk))
+  obtain ⟨L, hL⟩ : ∃ L, L = C ! := ⟨_, rfl⟩
+  have hL10 : C ! ≤ 10 ^ L := hL ▸ (Nat.lt_pow_self (by norm_num)).le
+  obtain ⟨N, hN⟩ : ∃ N, N = L + C + 1 + a n K0 := ⟨_, rfl⟩
+  have hN10 : a n K0 < 10 ^ N :=
+    lt_of_lt_of_le (by omega : a n K0 < N) (Nat.lt_pow_self (by norm_num)).le
+  have hex : ∃ j, 10 ^ N ≤ a n (K0 + j) :=
+    ⟨10 ^ N, le_trans (by omega) (a_ge hn (K0 + 10 ^ N))⟩
+  classical
+  obtain ⟨j, hj, hmin⟩ : ∃ j, 10 ^ N ≤ a n (K0 + j) ∧ ∀ i < j, ¬ 10 ^ N ≤ a n (K0 + i) :=
+    ⟨Nat.find hex, Nat.find_spec hex, fun i hi => Nat.find_min hex hi⟩
+  have hj0 : j ≠ 0 := by
+    rintro rfl
+    simp only [Nat.add_zero] at hj
+    omega
+  have hlt : a n (K0 + (j - 1)) < 10 ^ N := by
+    have := hmin (j - 1) (by omega); omega
+  have hstep : a n (K0 + j) = a n (K0 + (j - 1)) + d n (K0 + (j - 1)) := by
+    rw [show K0 + j = K0 + (j - 1) + 1 by omega, a_succ_add]
+  have hdle := hD (K0 + (j - 1)) (by omega)
+  have hnear : 10 ^ N - 10 ^ L ≤ a n (K0 + (j - 1)) := by omega
+  have hs := s_ge_of_near (by omega : L ≤ N) hnear hlt
+  have hc := hS (K0 + (j - 1)) (by omega)
+  omega
