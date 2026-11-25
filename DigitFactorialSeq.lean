@@ -1091,3 +1091,117 @@ theorem s_le_pow_five_mul (x t : ℕ) : s x ≤ 5 ^ t * s (2 ^ t * x) := by
     calc s x ≤ 5 ^ t * s (2 ^ t * x) := ih
       _ ≤ 5 ^ t * (5 * s (2 ^ (t + 1) * x)) := Nat.mul_le_mul_left _ h
       _ = 5 ^ (t + 1) * s (2 ^ (t + 1) * x) := by ring
+
+/-! ### 라운드 11: 대부분의 잉여류는 자릿수 합 ≥ 0.29t 가 필요하다 (Chernoff 개수 세기)
+
+정확한 지수 모멘트: Σ_{X<10^t} 4^(9t − s(X)) = 349525^t  (349525 = Σ_{d<10} 4^(9−d)).
+Markov 로 #{X < 10^t : s(X) ≤ σ} · 4^(9t−σ) ≤ 349525^t. 잉여류 개수도 같은 상한을 갖는다.
+σ ≤ 0.29t 이면 이 개수는 2^t 보다 작다 (실제 비율 ≤ 0.9965^t).
+수치(빔 탐색): f(t) ≤ 96, 190, 279 (t = 300, 600, 900), 한계 기울기 → ≈ 0.29–0.30.
+즉 특정 류 −1/5 도 "평범한 류" 의 값 c* ≈ 0.294 를 따르는 것으로 보인다. -/
+
+theorem s_le_nine_mul : ∀ t x, x < 10 ^ t → s x ≤ 9 * t := by
+  intro t
+  induction t with
+  | zero =>
+    intro x hx
+    have : x = 0 := by simpa using hx
+    subst this; simp [s_zero]
+  | succ t ih =>
+    intro x hx
+    have hx' : x / 10 < 10 ^ t := by rw [pow_succ] at hx; omega
+    have := ih _ hx'
+    rw [s_eq]; omega
+
+theorem s_ten_mul_add {Y d : ℕ} (hd : d < 10) : s (10 * Y + d) = d + s Y := by
+  rw [s_eq]
+  have h1 : (10 * Y + d) % 10 = d := by omega
+  have h2 : (10 * Y + d) / 10 = Y := by omega
+  rw [h1, h2]
+
+theorem sum_range_ten_mul (f : ℕ → ℕ) (n : ℕ) :
+    ∑ X ∈ Finset.range (10 * n), f X =
+      ∑ Y ∈ Finset.range n, ∑ d ∈ Finset.range 10, f (10 * Y + d) := by
+  induction n with
+  | zero => simp
+  | succ n ih =>
+    rw [show 10 * (n + 1) = 10 * n + 10 by ring, Finset.sum_range_add, ih,
+      Finset.sum_range_succ (fun Y => ∑ d ∈ Finset.range 10, f (10 * Y + d)) n]
+
+theorem sum_four_pow (t : ℕ) :
+    ∑ X ∈ Finset.range (10 ^ t), 4 ^ (9 * t - s X) = 349525 ^ t := by
+  induction t with
+  | zero => simp
+  | succ t ih =>
+    rw [show (10 : ℕ) ^ (t + 1) = 10 * 10 ^ t by ring, sum_range_ten_mul]
+    have hY : ∀ Y ∈ Finset.range (10 ^ t),
+        ∑ d ∈ Finset.range 10, 4 ^ (9 * (t + 1) - s (10 * Y + d)) =
+          349525 * 4 ^ (9 * t - s Y) := by
+      intro Y hYm
+      have hsY := s_le_nine_mul t Y (Finset.mem_range.1 hYm)
+      have hterm : ∀ d ∈ Finset.range 10,
+          4 ^ (9 * (t + 1) - s (10 * Y + d)) = 4 ^ (9 - d) * 4 ^ (9 * t - s Y) := by
+        intro d hd
+        have hd' := Finset.mem_range.1 hd
+        rw [s_ten_mul_add hd', ← pow_add]
+        congr 1; omega
+      rw [Finset.sum_congr rfl hterm, ← Finset.sum_mul,
+        show (∑ d ∈ Finset.range 10, (4 : ℕ) ^ (9 - d)) = 349525 by simp [Finset.sum_range_succ]]
+    rw [Finset.sum_congr rfl hY, ← Finset.mul_sum, ih]
+    ring
+
+/-- Markov: 자릿수 합 ≤ σ 인 X < 10^t 의 개수 상한. -/
+theorem card_small_digit_sum_le (t σ : ℕ) :
+    ((Finset.range (10 ^ t)).filter (fun X => s X ≤ σ)).card * 4 ^ (9 * t - σ) ≤ 349525 ^ t := by
+  rw [← sum_four_pow t]
+  calc ((Finset.range (10 ^ t)).filter (fun X => s X ≤ σ)).card * 4 ^ (9 * t - σ)
+      = ∑ X ∈ (Finset.range (10 ^ t)).filter (fun X => s X ≤ σ), 4 ^ (9 * t - σ) := by
+        rw [Finset.sum_const, smul_eq_mul]
+    _ ≤ ∑ X ∈ (Finset.range (10 ^ t)).filter (fun X => s X ≤ σ), 4 ^ (9 * t - s X) :=
+        Finset.sum_le_sum fun X hX =>
+          Nat.pow_le_pow_right (by norm_num) (by have := (Finset.mem_filter.1 hX).2; omega)
+    _ ≤ ∑ X ∈ Finset.range (10 ^ t), 4 ^ (9 * t - s X) :=
+        Finset.sum_le_sum_of_subset (Finset.filter_subset _ _)
+
+/-- 자릿수 합 ≤ σ 인 대표원(< 10^t) 을 갖는 잉여류(mod 2^t) 의 개수 상한. -/
+theorem classes_small_le (t σ : ℕ) :
+    (((Finset.range (10 ^ t)).filter (fun X => s X ≤ σ)).image (· % 2 ^ t)).card *
+      4 ^ (9 * t - σ) ≤ 349525 ^ t :=
+  le_trans (Nat.mul_le_mul_right _ Finset.card_image_le) (card_small_digit_sum_le t σ)
+
+/-- **라운드 11 결과**: 100σ ≤ 29t, t ≥ 1 이면 자릿수 합 ≤ σ 로 닿는 잉여류는 2^t 개 미만.
+즉 어떤 잉여류 mod 2^t 는 자릿수 합 > 0.29t 인 원소만 갖는다 (사실은 거의 모든 류가 그렇다). -/
+theorem classes_small_lt (t σ : ℕ) (ht : 1 ≤ t) (hσ : 100 * σ ≤ 29 * t) :
+    (((Finset.range (10 ^ t)).filter (fun X => s X ≤ σ)).image (· % 2 ^ t)).card < 2 ^ t := by
+  have h1 := classes_small_le t σ
+  have hσ9 : σ ≤ 9 * t := by omega
+  have key : 349525 ^ t * 4 ^ σ < 2 ^ t * 4 ^ (9 * t) := by
+    have hb : (349525 : ℕ) ^ 100 * 4 ^ 29 < (2 * 4 ^ 9) ^ 100 := by norm_num
+    have e1 : (349525 ^ t * 4 ^ σ) ^ 100 = 349525 ^ (100 * t) * 4 ^ (100 * σ) := by
+      rw [mul_pow, ← pow_mul, ← pow_mul, mul_comm t 100, mul_comm σ 100]
+    have e2 : (349525 : ℕ) ^ (100 * t) * 4 ^ (29 * t) = (349525 ^ 100 * 4 ^ 29) ^ t := by
+      rw [mul_pow, ← pow_mul, ← pow_mul]
+    have e3 : (((2 : ℕ) * 4 ^ 9) ^ 100) ^ t = (2 ^ t * 4 ^ (9 * t)) ^ 100 := by
+      calc (((2 : ℕ) * 4 ^ 9) ^ 100) ^ t = (2 * 4 ^ 9) ^ (100 * t) := (pow_mul _ _ _).symm
+        _ = 2 ^ (100 * t) * (4 ^ 9) ^ (100 * t) := mul_pow _ _ _
+        _ = 2 ^ (100 * t) * 4 ^ (9 * (100 * t)) := by rw [← pow_mul]
+        _ = (2 ^ t) ^ 100 * (4 ^ (9 * t)) ^ 100 := by rw [← pow_mul, ← pow_mul]; ring_nf
+        _ = (2 ^ t * 4 ^ (9 * t)) ^ 100 := (mul_pow _ _ _).symm
+    have h100 : (349525 ^ t * 4 ^ σ) ^ 100 < (2 ^ t * 4 ^ (9 * t)) ^ 100 := by
+      rw [e1, ← e3]
+      calc 349525 ^ (100 * t) * 4 ^ (100 * σ) ≤ 349525 ^ (100 * t) * 4 ^ (29 * t) :=
+            Nat.mul_le_mul_left _ (Nat.pow_le_pow_right (by norm_num) hσ)
+        _ = (349525 ^ 100 * 4 ^ 29) ^ t := e2
+        _ < ((2 * 4 ^ 9) ^ 100) ^ t := Nat.pow_lt_pow_left hb (by omega)
+    exact (Nat.pow_lt_pow_iff_left (by norm_num)).1 h100
+  have hsplit : 4 ^ (9 * t) = 4 ^ (9 * t - σ) * 4 ^ σ := by
+    rw [← pow_add, Nat.sub_add_cancel hσ9]
+  rw [hsplit] at key
+  by_contra hge
+  push Not at hge
+  have h2 : 2 ^ t * (4 ^ (9 * t - σ) * 4 ^ σ) ≤
+      (((Finset.range (10 ^ t)).filter (fun X => s X ≤ σ)).image (· % 2 ^ t)).card *
+        4 ^ (9 * t - σ) * 4 ^ σ := by
+    rw [← mul_assoc]; exact Nat.mul_le_mul_right _ (Nat.mul_le_mul_right _ hge)
+  have h3 := Nat.mul_le_mul_right (4 ^ σ) h1
+  exact absurd ((h2.trans h3).trans_lt key) (lt_irrefl _)
