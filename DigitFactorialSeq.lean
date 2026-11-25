@@ -910,3 +910,74 @@ theorem zero_block_back_iter {u i L m : ℕ} (h : 10 ^ L ∣ (u * 2 ^ m) / 10 ^ 
       rw [heq] at h1
       have := zero_block_back hge h1
       rwa [show L - t - 1 = L - (t + 1) by omega] at this
+
+/-! ### 라운드 5: 0 블록 ⇔ 작은 5-진 잉여, 그리고 조건부 m/log m 하한
+
+j ≤ m 이면 u·2^m mod 10^j = 2^j · (u·2^(m−j) mod 5^j).
+따라서 "자리 [kB, (k+1)B) 가 0 블록" ⇔ "2^{(k+1)B}·r < 10^{kB}" (r 은 5-진 잉여).
+잉여가 너무 작지 않다는 Diophantine 가설이면 길이 B 블록마다 0 아닌 자리가 있어
+s ≥ (블록 수) 가 된다. -/
+
+theorem mod_ten_pow_eq (u m j : ℕ) (h : j ≤ m) :
+    u * 2 ^ m % 10 ^ j = 2 ^ j * (u * 2 ^ (m - j) % 5 ^ j) := by
+  have h2 : 2 ^ m = 2 ^ j * 2 ^ (m - j) := by rw [← pow_add, Nat.add_sub_cancel' h]
+  have e1 : u * 2 ^ m = 2 ^ j * (u * 2 ^ (m - j)) := by rw [h2]; ring
+  have e2 : (10 : ℕ) ^ j = 2 ^ j * 5 ^ j := by rw [← mul_pow]; norm_num
+  rw [e1, e2, Nat.mul_mod_mul_left]
+
+/-- 정렬된 길이 B 블록이 t 개 모두 0 이 아니면 s(x) ≥ t. -/
+theorem s_ge_blocks (B : ℕ) : ∀ t x, (∀ k < t, (x / 10 ^ (k * B)) % 10 ^ B ≠ 0) → t ≤ s x := by
+  intro t
+  induction t with
+  | zero => intro _ _; exact Nat.zero_le _
+  | succ t ih =>
+    intro x h
+    have h0 : x % 10 ^ B ≠ 0 := by simpa using h 0 (by omega)
+    have hrest : ∀ k < t, ((x / 10 ^ B) / 10 ^ (k * B)) % 10 ^ B ≠ 0 := fun k hk => by
+      have := h (k + 1) (by omega)
+      rwa [Nat.div_div_eq_div_mul, ← pow_add, show B + k * B = (k + 1) * B by ring]
+    have h1 := ih (x / 10 ^ B) hrest
+    have hs := s_split B x
+    have hp := s_pos _ (Nat.pos_of_ne_zero h0)
+    omega
+
+/-- 블록 (x / 10^a) % 10^b 가 0 이 아니려면 x mod 10^a·10^b ≥ 10^a 이면 된다. -/
+theorem block_ne_zero {x a b : ℕ} (h : 10 ^ a ≤ x % (10 ^ a * 10 ^ b)) :
+    (x / 10 ^ a) % 10 ^ b ≠ 0 := by
+  intro h0
+  rw [Nat.mod_mul, h0, Nat.mul_zero, Nat.add_zero] at h
+  exact absurd (Nat.mod_lt x (by positivity : 0 < 10 ^ a)) (not_lt.2 h)
+
+/-- **라운드 5 조건부 정리**: tB ≤ m 이고, 각 k < t 에 대해 5-진 잉여
+r = u·2^(m−(k+1)B) mod 5^{(k+1)B} 가 10^{kB} ≤ 2^{(k+1)B}·r (즉 r/5^{(k+1)B} ≥ 10^{−B}) 이면
+s(u·2^m) ≥ t. -/
+theorem s_ge_of_no_small_residue {u m B t : ℕ} (hB : t * B ≤ m)
+    (H : ∀ k < t, 10 ^ (k * B) ≤
+      2 ^ ((k + 1) * B) * (u * 2 ^ (m - (k + 1) * B) % 5 ^ ((k + 1) * B))) :
+    t ≤ s (u * 2 ^ m) := by
+  apply s_ge_blocks B t
+  intro k hk
+  apply block_ne_zero
+  have hj : (k + 1) * B ≤ m := le_trans (Nat.mul_le_mul_right _ hk) hB
+  rw [← pow_add, show k * B + B = (k + 1) * B by ring, mod_ten_pow_eq u m _ hj]
+  exact H k hk
+
+/-! ### 라운드 7: 2-진 정보만으로는 (C) 를 얻을 수 없다 (장벽의 인증)
+
+"2^m ∣ x, 5 ∤ x" 만 쓰는 논법(라운드 1 등)의 한계를 잰다. 2-진 자릿수 DP 로 구한
+2^t 배수의 최소 자릿수 합은 t = 4..56 에서 4,6,8,9,11,12,13,14,15,16,19,22 로 약 0.39t.
+특히 t = 48 에서 자릿수 합 19 인 배수가 있으므로, 2-진 정보만으로는 s ≥ m/2 조차 나올 수 없다.
+(C) 는 s ≥ m 을 요구하므로, (C) 의 증명은 반드시 u 가 작다는 (크기) 정보를 써야 한다. -/
+
+theorem two_adic_witness :
+    2 ^ 48 ∣ 10000001000001000000030100101011000000210010112 ∧
+      ¬ 5 ∣ 10000001000001000000030100101011000000210010112 ∧
+      s 10000001000001000000030100101011000000210010112 = 19 := by
+  refine ⟨by norm_num, by norm_num, by norm_num [s]⟩
+
+/-- 따라서 "2^48 ∣ x, 5 ∤ x ⇒ s(x) ≥ 24" 같은 명제는 거짓이다. -/
+theorem two_adic_info_insufficient : ¬ (∀ x, 2 ^ 48 ∣ x → ¬ 5 ∣ x → 24 ≤ s x) := by
+  intro h
+  obtain ⟨h1, h2, h3⟩ := two_adic_witness
+  have := h _ h1 h2
+  omega
