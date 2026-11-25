@@ -981,3 +981,113 @@ theorem two_adic_info_insufficient : ¬ (∀ x, 2 ^ 48 ∣ x → ¬ 5 ∣ x → 
   obtain ⟨h1, h2, h3⟩ := two_adic_witness
   have := h _ h1 h2
   omega
+
+/-! ### 라운드 8: f(t) = min{ s(N) : 2^t ∣ N, 5 ∤ N } 의 상·하한 (Lean 으로 확정된 범위)
+
+상한 (고전적 구성): 마지막 자리 2, 나머지 자리 0/1 로 2^t 의 배수를 만든다.
+2^k ∣ N 이면 N 과 N + 10^k (≡ N + 2^k mod 2^(k+1)) 중 하나는 2^(k+1) 의 배수이기 때문.
+하한: 라운드 1 의 창 논법. 따라서 wlog t ≤ f(t) ≤ t + 1. (수치로는 f(t) ≈ 0.39t.) -/
+
+theorem s_add_ten_pow {N k : ℕ} (h : N < 10 ^ k) : s (N + 10 ^ k) = s N + 1 := by
+  have hs := s_split k (N + 10 ^ k)
+  have h1 : (N + 10 ^ k) % 10 ^ k = N := by
+    rw [Nat.add_mod_right]; exact Nat.mod_eq_of_lt h
+  have h2 : (N + 10 ^ k) / 10 ^ k = 1 := by
+    rw [Nat.add_div_right _ (by positivity), Nat.div_eq_of_lt h]
+  rw [h1, h2] at hs
+  have : s 1 = 1 := s_le_one le_rfl
+  omega
+
+theorem exists_sparse_multiple (t : ℕ) (ht : 1 ≤ t) :
+    ∃ N, 2 ^ t ∣ N ∧ N % 10 = 2 ∧ N < 10 ^ t ∧ s N ≤ t + 1 := by
+  induction t with
+  | zero => omega
+  | succ k ih =>
+    rcases Nat.eq_zero_or_pos k with rfl | hk
+    · exact ⟨2, by norm_num, by norm_num, by norm_num, by norm_num [s]⟩
+    · obtain ⟨N, ⟨w, hw⟩, h10, hlt, hs⟩ := ih hk
+      have hk10 : 10 ^ k % 10 = 0 := by
+        obtain ⟨j, rfl⟩ : ∃ j, k = j + 1 := ⟨k - 1, by omega⟩
+        rw [pow_succ]; simp
+      have h10k : (10 : ℕ) ^ (k + 1) = 10 * 10 ^ k := by ring
+      rcases Nat.even_or_odd w with ⟨v, hv⟩ | ⟨v, hv⟩
+      · refine ⟨N, ⟨v, ?_⟩, h10, by omega, by omega⟩
+        rw [hw, hv, pow_succ]; ring
+      · refine ⟨N + 10 ^ k, ?_, by omega, by omega, ?_⟩
+        · obtain ⟨c, hc⟩ : Odd (5 ^ k) := Odd.pow ⟨2, by norm_num⟩
+          refine ⟨v + c + 1, ?_⟩
+          rw [hw, show (10 : ℕ) ^ k = 2 ^ k * 5 ^ k by rw [← mul_pow]; norm_num, hv, hc, pow_succ]
+          ring
+        · rw [s_add_ten_pow hlt]; omega
+
+/-- **라운드 8 결과 (확정된 범위)**: t ≥ 1 이면
+(1) s(N) ≤ t+1 인 2^t 의 배수 N (5 ∤ N) 이 존재하고,
+(2) 2^t ∣ N, 5 ∤ N 인 모든 N 은 s(N) ≥ wlog t (≈ log_{10/3} t). -/
+theorem f_sandwich (t : ℕ) (ht : 1 ≤ t) :
+    (∃ N, 2 ^ t ∣ N ∧ ¬ 5 ∣ N ∧ s N ≤ t + 1) ∧
+      ∀ N, 2 ^ t ∣ N → ¬ 5 ∣ N → wlog t ≤ s N := by
+  refine ⟨?_, ?_⟩
+  · obtain ⟨N, h2, h10, -, hs⟩ := exists_sparse_multiple t ht
+    exact ⟨N, h2, by omega, hs⟩
+  · intro N h2 h5
+    have := window_bound t N h2 h5
+    have := s_split t N
+    omega
+
+/-! ### 라운드 9: 길이 제한 — (C) 는 "u 가 정말 상수" 라는 정보를 써야 한다
+
+t = 24 에서 길이 ℓ 인 2^t 배수의 최소 자릿수 합 곡선은 랜덤 모델 문턱과 거의 일치한다
+(ℓ = 8..24: 29,25,22,20,20,17,17,17,12,… vs 모델 30,24,21,19,17,16,15,14,13,…).
+"u 가 작기만 하면 s(u·2^m) ≥ m" 같은 균일한 (C) 는 거짓이다: -/
+
+theorem uniform_C_fails : s (1637 * 2 ^ 100) = 92 := by norm_num [s]
+
+/-- 반면 우리 수열의 값은 여유가 있다: s(3315·2^101) = s(663·2^100) = 132 ≥ 101. -/
+theorem our_value_100 : s (663 * 2 ^ 100) = 132 := by norm_num [s]
+
+/-! ### 라운드 10: 정확한 공식과 "골짜기 폭"
+
+(1) 자릿수 합의 Legendre 형 공식: s(x) = x − 9·Σ_{k≥1} ⌊x/10^k⌋.
+    x = u·2^m 이면 ⌊x/10^k⌋ = ⌊u·2^(m−k)/5^k⌋ 이므로 (C) ⇔ 5-진 분수 {u·2^(m−k)/5^k} 의
+    평균 ≥ 0.369 (랜덤 모델 기대값 0.5).
+(2) 골짜기 폭: s(2^t x) ≤ 2^t s(x), s(x) ≤ 5^t s(2^t x). 한 m 에서 자릿수 합이 작으면
+    주변도 작지만, 그 폭은 log 수준이라 밀도 정리(대부분의 m 에서 큼)와 모순을 만들지 못한다. -/
+
+theorem s_legendre : ∀ L x, x < 10 ^ L → s x + 9 * ∑ k ∈ Finset.range L, x / 10 ^ (k + 1) = x := by
+  intro L
+  induction L with
+  | zero =>
+    intro x hx
+    have : x = 0 := by simpa using hx
+    subst this; simp [s_zero]
+  | succ L ih =>
+    intro x hx
+    have hx' : x / 10 < 10 ^ L := by rw [pow_succ] at hx; omega
+    have h := ih (x / 10) hx'
+    rw [Finset.sum_range_succ']
+    have hterm : ∀ k ∈ Finset.range L, x / 10 ^ (k + 1 + 1) = x / 10 / 10 ^ (k + 1) := by
+      intro k _
+      rw [Nat.div_div_eq_div_mul, ← _root_.pow_succ']
+    rw [Finset.sum_congr rfl hterm, s_eq x]
+    simp only [zero_add, pow_one]
+    omega
+
+theorem s_pow_two_mul_le (x t : ℕ) : s (2 ^ t * x) ≤ 2 ^ t * s x := by
+  induction t with
+  | zero => simp
+  | succ t ih =>
+    have e : 2 ^ (t + 1) * x = 2 * (2 ^ t * x) := by ring
+    rw [e]
+    calc s (2 * (2 ^ t * x)) ≤ 2 * s (2 ^ t * x) := s_two_mul_le _
+      _ ≤ 2 * (2 ^ t * s x) := Nat.mul_le_mul_left _ ih
+      _ = 2 ^ (t + 1) * s x := by ring
+
+theorem s_le_pow_five_mul (x t : ℕ) : s x ≤ 5 ^ t * s (2 ^ t * x) := by
+  induction t with
+  | zero => simp
+  | succ t ih =>
+    have h := s_le_five_mul_s_two_mul (2 ^ t * x)
+    rw [show 2 * (2 ^ t * x) = 2 ^ (t + 1) * x by ring] at h
+    calc s x ≤ 5 ^ t * s (2 ^ t * x) := ih
+      _ ≤ 5 ^ t * (5 * s (2 ^ (t + 1) * x)) := Nat.mul_le_mul_left _ h
+      _ = 5 ^ (t + 1) * s (2 ^ (t + 1) * x) := by ring
