@@ -167,3 +167,102 @@ theorem conjecture_needs_breaks (h : Conjecture) :
     omega
   · have := Nat.le_of_dvd (hpos K) ha
     omega
+
+/-! ## 6. 약한 가정: "홀수 부분 흡수"
+
+2배 모드가 깨져도 상관없다. x = u·2^m 이고 u ∣ s(x)! 이기만 하면
+gcd(x, s(x)!) 의 여인수는 2의 거듭제곱 2^j 이고, 다음 항은 x·(2^j+1)/2^j 이다.
+그러면 2^j + 1 을 나누지 않는 소수 p (예: 7) 의 지수는 절대 변하지 않는다. -/
+
+/-- x 의 "홀수 부분" (정확히는 x 를 2의 거듭제곱으로 나눈 어떤 몫) 이 s(x)! 을 나눈다. -/
+def Absorbed (x : ℕ) : Prop := ∃ u m : ℕ, x = u * 2 ^ m ∧ u ∣ (s x)!
+
+/-- 2배 모드는 흡수의 특수한 경우 (u = x, m = 0). -/
+theorem absorbed_of_dvd {x : ℕ} (h : x ∣ (s x)!) : Absorbed x :=
+  ⟨x, 0, by simp, h⟩
+
+/-- 핵심 보조정리: 흡수 상태에서 step x · 2^j = x · (2^j + 1) 인 j 가 있다. -/
+theorem step_of_absorbed {x : ℕ} (hA : Absorbed x) (hx : 0 < x) :
+    ∃ j, step x * 2 ^ j = x * (2 ^ j + 1) := by
+  obtain ⟨u, m, rfl, hu⟩ := hA
+  set g := Nat.gcd (u * 2 ^ m) (s (u * 2 ^ m))! with hg
+  have hug : u ∣ g := Nat.dvd_gcd (Dvd.intro _ rfl) hu
+  have hgx : g ∣ u * 2 ^ m := Nat.gcd_dvd_left _ _
+  obtain ⟨q, hq⟩ := hgx
+  obtain ⟨r, hr⟩ := hug
+  have hu0 : 0 < u := Nat.pos_of_mul_pos_right hx
+  have hrq : r * q = 2 ^ m := by
+    have : u * (r * q) = u * 2 ^ m := by rw [← mul_assoc, ← hr, ← hq]
+    exact Nat.eq_of_mul_eq_mul_left hu0 this
+  obtain ⟨j, -, hj⟩ := (Nat.dvd_prime_pow Nat.prime_two).1 (Dvd.intro_left r hrq)
+  refine ⟨j, ?_⟩
+  have hstep : step (u * 2 ^ m) = g * (2 ^ j + 1) := by
+    unfold step
+    rw [← hg, hq, hj]
+    ring
+  rw [hstep, hq, hj]
+  ring
+
+/-- 7 은 어떤 2^j + 1 도 나누지 않는다 (2^j mod 7 ∈ {1, 2, 4}). -/
+theorem seven_not_dvd_two_pow_add_one (j : ℕ) : ¬ 7 ∣ 2 ^ j + 1 := by
+  intro h
+  have hj : 2 ^ j = 8 ^ (j / 3) * 2 ^ (j % 3) := by
+    rw [show (8 : ℕ) = 2 ^ 3 by norm_num, ← pow_mul, ← pow_add, Nat.div_add_mod]
+  have h8 : 8 ^ (j / 3) % 7 = 1 := by rw [Nat.pow_mod]; simp
+  have hmod := Nat.mod_eq_zero_of_dvd h
+  rw [hj, Nat.add_mod, Nat.mul_mod, h8] at hmod
+  have hr : j % 3 < 3 := Nat.mod_lt _ (by norm_num)
+  generalize j % 3 = r at hmod hr
+  interval_cases r <;> simp at hmod
+
+/-- 흡수 상태에서 한 단계를 가도 p-지수는 그대로다 (p ∤ 2^j+1 인 소수 p). -/
+theorem multiplicity_step_of_absorbed {p x : ℕ} (hp : p.Prime)
+    (h2 : ∀ j, ¬ p ∣ 2 ^ j + 1) (hA : Absorbed x) (hx : 0 < x) :
+    multiplicity p (step x) = multiplicity p x := by
+  have := Fact.mk hp
+  obtain ⟨j, hj⟩ := step_of_absorbed hA hx
+  have hs : step x ≠ 0 := by unfold step; omega
+  have hp2 : ¬ p ∣ 2 ^ j := fun h => h2 0 (by simpa using hp.dvd_of_dvd_pow h)
+  have := congrArg (multiplicity p) hj
+  rwa [Nat.multiplicity_mul hs (by positivity), Nat.multiplicity_mul hx.ne' (Nat.succ_ne_zero _),
+    multiplicity_eq_zero_of_not_dvd hp2, multiplicity_eq_zero_of_not_dvd (h2 j),
+    Nat.add_zero, Nat.add_zero] at this
+
+theorem a_succ (n k : ℕ) : a n (k + 1) = step (a n k) := by
+  simp only [a, Function.iterate_succ_apply']
+
+theorem a_pos {n : ℕ} (hn : 0 < n) (k : ℕ) : 0 < a n k := by
+  induction k with
+  | zero => simpa [a] using hn
+  | succ k ih => rw [a_succ]; unfold step; omega
+
+/-- 정리 (약한 가정의 조건부 반례): 어떤 n 과 K 에 대해 k ≥ K 인 모든 a_k 가 흡수 상태이면
+원래 추측은 거짓이다. p ∤ 2^j + 1 (모든 j) 인 소수 p 가 반례가 된다. -/
+theorem not_conjecture_of_absorbed {n p K : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (h2 : ∀ j, ¬ p ∣ 2 ^ j + 1) (hA : ∀ k ≥ K, Absorbed (a n k)) : ¬ Conjecture := by
+  have := Fact.mk hp
+  intro hC
+  have hconst : ∀ j, multiplicity p (a n (K + j)) = multiplicity p (a n K) := by
+    intro j
+    induction j with
+    | zero => rfl
+    | succ j ih =>
+      rw [← Nat.add_assoc, a_succ,
+        multiplicity_step_of_absorbed hp h2 (hA _ (by omega)) (a_pos hn _), ih]
+  obtain ⟨k, hk, hB⟩ := hC n hn p hp (multiplicity p (a n K)) K
+  obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le hk
+  have hle : multiplicity p (d n (K + j)) ≤ multiplicity p (a n (K + j)) :=
+    (multiplicity_dvd_iff_le (a_pos hn _).ne').1
+      ((pow_multiplicity_dvd _ _).trans (Nat.gcd_dvd_left _ _))
+  rw [padicValNat_def] at hB
+  have := hconst j
+  omega
+
+/-- 따름정리: 추측이 참이라면, 모든 n 에서 흡수가 무한히 자주 깨져야 한다.
+(`conjecture_needs_breaks` 보다 강하다: 2-지수 쪽 깨짐만으로는 부족하다.) -/
+theorem conjecture_needs_absorption_breaks (h : Conjecture) {n : ℕ} (hn : 0 < n) :
+    ∀ K : ℕ, ∃ k ≥ K, ¬ Absorbed (a n k) := by
+  intro K
+  by_contra hne
+  push Not at hne
+  exact not_conjecture_of_absorbed hn (by norm_num) seven_not_dvd_two_pow_add_one hne h
