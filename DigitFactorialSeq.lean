@@ -684,3 +684,229 @@ theorem conjecture_iff_odd : Conjecture ↔
     by_cases h2 : p = 2
     · subst h2; exact conjecture_two hn
     · exact h n hn p hp h2
+
+/-! ## 10. 탐구: s(u·2^m) 의 하한 (미해결 핵심을 직접 공략)
+
+### 라운드 1: 끝자리 창(window) 논법
+x = u·2^m, 5 ∤ u 이면 끝 k 자리 y = x mod 10^k 는 0 이 아닌 2^k 의 배수라 y ≥ 2^k ≥ 10^⌊3k/10⌋.
+따라서 자리 [⌊3k/10⌋, k) 에 0 아닌 숫자가 있고, 이를 재귀하면 log_{10/3} k 개의 창을 얻는다. -/
+
+/-- 자릿수 합은 아래 j 자리와 나머지로 쪼개진다. -/
+theorem s_split (j y : ℕ) : s y = s (y % 10 ^ j) + s (y / 10 ^ j) := by
+  induction j generalizing y with
+  | zero => simp [Nat.mod_one, s_zero]
+  | succ j ih =>
+    have h1 : y % 10 ^ (j + 1) % 10 = y % 10 := by
+      rw [_root_.pow_succ']; exact Nat.mod_mul_right_mod _ _ _
+    have h2 : y % 10 ^ (j + 1) / 10 = y / 10 % 10 ^ j := by
+      rw [_root_.pow_succ']; exact Nat.mod_mul_right_div_self _ _ _
+    have h3 : y / 10 ^ (j + 1) = y / 10 / 10 ^ j := by
+      rw [_root_.pow_succ', Nat.div_div_eq_div_mul]
+    rw [s_eq y, ih (y / 10), s_eq (y % 10 ^ (j + 1)), h1, h2, h3]
+    ring
+
+theorem s_pos : ∀ z, 0 < z → 0 < s z := by
+  intro z
+  induction z using Nat.strong_induction_on with
+  | _ z ih =>
+    intro hz
+    rw [s_eq]
+    rcases Nat.eq_zero_or_pos (z % 10) with h | h
+    · have := ih (z / 10) (by omega) (by omega)
+      omega
+    · omega
+
+theorem ten_pow_le_two_pow {j k : ℕ} (h : 10 * j ≤ 3 * k) : 10 ^ j ≤ 2 ^ k := by
+  have h1 : (10 ^ j) ^ 10 ≤ (2 ^ k) ^ 10 := by
+    calc (10 ^ j) ^ 10 = 10 ^ (10 * j) := by rw [← pow_mul, mul_comm]
+      _ ≤ 10 ^ (3 * k) := Nat.pow_le_pow_right (by norm_num) h
+      _ = 1000 ^ k := by rw [pow_mul]; norm_num
+      _ ≤ 1024 ^ k := Nat.pow_le_pow_left (by norm_num) k
+      _ = (2 ^ k) ^ 10 := by rw [← pow_mul, show k * 10 = 10 * k by ring, pow_mul]; norm_num
+  exact (Nat.pow_le_pow_iff_left (by norm_num)).1 h1
+
+/-- 창의 개수: wlog k = 1 + wlog ⌊3k/10⌋ (k > 0). 대략 log_{10/3} k. -/
+def wlog (k : ℕ) : ℕ := if h : k = 0 then 0 else 1 + wlog (3 * k / 10)
+termination_by k
+decreasing_by omega
+
+theorem window_bound : ∀ k x, 2 ^ k ∣ x → ¬ 5 ∣ x → wlog k ≤ s (x % 10 ^ k) := by
+  intro k
+  induction k using Nat.strong_induction_on with
+  | _ k ih =>
+    intro x h2 h5
+    rcases Nat.eq_zero_or_pos k with rfl | hk
+    · simp [wlog]
+    · obtain ⟨j, hj⟩ : ∃ j, j = 3 * k / 10 := ⟨_, rfl⟩
+      have hjk : j < k := by omega
+      have hwl : wlog k = 1 + wlog j := by
+        rw [wlog]; split_ifs with h
+        · omega
+        · rw [hj]
+      have hy2 : 2 ^ k ∣ x % 10 ^ k :=
+        (Nat.dvd_mod_iff (pow_dvd_pow_of_dvd (by norm_num) k)).2 h2
+      have hy0 : x % 10 ^ k ≠ 0 := by
+        intro h0
+        have h10 : 10 ^ k ∣ x := Nat.dvd_of_mod_eq_zero h0
+        exact h5 ((show (5 : ℕ) ∣ 10 by norm_num).trans ((dvd_pow_self 10 hk.ne').trans h10))
+      have hyge : 10 ^ j ≤ x % 10 ^ k :=
+        (ten_pow_le_two_pow (by omega)).trans (Nat.le_of_dvd (Nat.pos_of_ne_zero hy0) hy2)
+      have hsplit := s_split j (x % 10 ^ k)
+      have hmod : x % 10 ^ k % 10 ^ j = x % 10 ^ j :=
+        Nat.mod_mod_of_dvd x (pow_dvd_pow 10 hjk.le)
+      have hih := ih j hjk x ((pow_dvd_pow 2 hjk.le).trans h2) h5
+      have htop : 0 < s (x % 10 ^ k / 10 ^ j) :=
+        s_pos _ (Nat.div_pos hyge (by positivity))
+      rw [hmod] at hsplit
+      omega
+
+theorem s_mul_pow_ge {u : ℕ} (hu : ¬ 5 ∣ u) (m : ℕ) : wlog m ≤ s (u * 2 ^ m) := by
+  have h5 : ¬ 5 ∣ u * 2 ^ m := by
+    intro h
+    rcases (Nat.Prime.dvd_mul (by norm_num)).1 h with h | h
+    · exact hu h
+    · have := Nat.Prime.dvd_of_dvd_pow (by norm_num : (5 : ℕ).Prime) h
+      omega
+  have := window_bound m (u * 2 ^ m) (Dvd.intro_left u rfl) h5
+  have hs := s_split m (u * 2 ^ m)
+  omega
+
+theorem le_wlog : ∀ t k, 4 ^ t ≤ k → t ≤ wlog k := by
+  intro t
+  induction t with
+  | zero => intro _ _; exact Nat.zero_le _
+  | succ t ih =>
+    intro k hk
+    have h4 : 4 ^ (t + 1) = 4 * 4 ^ t := _root_.pow_succ' 4 t
+    have hP : 1 ≤ 4 ^ t := Nat.one_le_pow _ _ (by norm_num)
+    have hk0 : k ≠ 0 := by omega
+    have := ih (3 * k / 10) (by omega)
+    rw [wlog]; split_ifs with h
+    · omega
+    · omega
+
+/-- **라운드 1 결과 (Radcliffe 형 하한)**: 5 ∤ u 이면 4^t ≤ m 일 때 t ≤ s(u·2^m).
+즉 s(u·2^m) ≥ log₄ m. -/
+theorem s_mul_pow_ge_log {u : ℕ} (hu : ¬ 5 ∣ u) {m t : ℕ} (h : 4 ^ t ≤ m) :
+    t ≤ s (u * 2 ^ m) :=
+  (le_wlog t m h).trans (s_mul_pow_ge hu m)
+
+theorem s_mul_ten (y : ℕ) : s (10 * y) = s y := by
+  rw [s_eq]; simp [Nat.mul_mod_right, Nat.mul_div_cancel_left y (by norm_num : 0 < 10)]
+
+/-- 우리 수열에 적용: s(3315·2^(m+1)) ≥ log₄ m. -/
+theorem s_3315_ge_log {m t : ℕ} (h : 4 ^ t ≤ m) : t ≤ s (3315 * 2 ^ (m + 1)) := by
+  have : 3315 * 2 ^ (m + 1) = 10 * (663 * 2 ^ m) := by ring
+  rw [this, s_mul_ten]
+  exact s_mul_pow_ge_log (by norm_num) h
+
+/-! ### 라운드 2: 받아올림 항등식 s(2x) + 9·c(x) = 2·s(x)
+c(x) = 5 이상인 자릿수 개수 = x 를 2배 할 때 생기는 받아올림 수. -/
+
+def c5 (x : ℕ) : ℕ := ((Nat.digits 10 x).map (fun d => if 5 ≤ d then 1 else 0)).sum
+
+theorem c5_eq (x : ℕ) : c5 x = (if 5 ≤ x % 10 then 1 else 0) + c5 (x / 10) := by
+  rcases Nat.eq_zero_or_pos x with rfl | hx
+  · simp [c5]
+  · unfold c5
+    rw [Nat.digits_def' (by norm_num) hx, List.map_cons, List.sum_cons]
+
+theorem s_two_mul_add_one (q : ℕ) : s (2 * q + 1) = s (2 * q) + 1 := by
+  rw [s_eq (2 * q + 1), s_eq (2 * q)]
+  have h1 : (2 * q + 1) % 10 = (2 * q) % 10 + 1 := by omega
+  have h2 : (2 * q + 1) / 10 = (2 * q) / 10 := by omega
+  rw [h1, h2]; ring
+
+theorem carry_identity : ∀ x, s (2 * x) + 9 * c5 x = 2 * s x := by
+  intro x
+  induction x using Nat.strong_induction_on with
+  | _ x ih =>
+    rcases Nat.eq_zero_or_pos x with rfl | hx
+    · simp [s_zero, c5]
+    · have hq := ih (x / 10) (by omega)
+      rw [s_eq (2 * x), c5_eq x, s_eq x]
+      have h1 : (2 * x) % 10 = (2 * (x % 10)) % 10 := by omega
+      have h2 : (2 * x) / 10 = 2 * (x / 10) + (if 5 ≤ x % 10 then 1 else 0) := by
+        split_ifs <;> omega
+      rw [h1, h2]
+      split_ifs with h
+      · rw [s_two_mul_add_one]; omega
+      · simp only [Nat.add_zero, Nat.zero_add]; omega
+
+theorem c5_le : ∀ x, 5 * c5 x ≤ s x := by
+  intro x
+  induction x using Nat.strong_induction_on with
+  | _ x ih =>
+    rcases Nat.eq_zero_or_pos x with rfl | hx
+    · simp [c5]
+    · have := ih (x / 10) (by omega)
+      rw [c5_eq, s_eq x]
+      split_ifs <;> omega
+
+/-- 2배 하면 자릿수 합은 최대 2배, 최소 1/5 배. -/
+theorem s_two_mul_le (x : ℕ) : s (2 * x) ≤ 2 * s x := by
+  have := carry_identity x; omega
+
+theorem s_le_five_mul_s_two_mul (x : ℕ) : s x ≤ 5 * s (2 * x) := by
+  have := carry_identity x; have := c5_le x; omega
+
+/-- 누적 형태: Σ_{m<M} s(u·2^m) + s(u) = s(u·2^M) + 9·Σ_{m<M} c(u·2^m).
+즉 "s 가 평균적으로 선형" ⇔ "5 이상 자릿수의 개수가 평균적으로 선형". -/
+theorem sum_s_eq (u M : ℕ) :
+    (∑ m ∈ Finset.range M, s (u * 2 ^ m)) + s u =
+      s (u * 2 ^ M) + 9 * ∑ m ∈ Finset.range M, c5 (u * 2 ^ m) := by
+  induction M with
+  | zero => simp
+  | succ M ih =>
+    rw [Finset.sum_range_succ, Finset.sum_range_succ]
+    have hc := carry_identity (u * 2 ^ M)
+    rw [show 2 * (u * 2 ^ M) = u * 2 ^ (M + 1) by ring] at hc
+    omega
+
+/-! ### 라운드 3: 0 블록은 시간을 거슬러 가면 1 씩만 줄어든다
+2x 의 자리 [i, i+L) 이 모두 0 이면 x 의 자리 [i, i+L−1) 도 모두 0. -/
+
+theorem zero_block_back {x i L : ℕ} (hL : 1 ≤ L) (h : 10 ^ L ∣ (2 * x) / 10 ^ i) :
+    10 ^ (L - 1) ∣ x / 10 ^ i := by
+  have hpos : 0 < 10 ^ i := by positivity
+  have hx : x = 10 ^ i * (x / 10 ^ i) + x % 10 ^ i := (Nat.div_add_mod x (10 ^ i)).symm
+  have hC : x % 10 ^ i < 10 ^ i := Nat.mod_lt _ hpos
+  have h2x : (2 * x) / 10 ^ i = 2 * (x / 10 ^ i) + (2 * (x % 10 ^ i)) / 10 ^ i := by
+    conv_lhs => rw [hx]
+    rw [show 2 * (10 ^ i * (x / 10 ^ i) + x % 10 ^ i) =
+      2 * (x % 10 ^ i) + 10 ^ i * (2 * (x / 10 ^ i)) by ring, Nat.add_mul_div_left _ _ hpos]
+    ring
+  have hc : (2 * (x % 10 ^ i)) / 10 ^ i ≤ 1 := by
+    have : (2 * (x % 10 ^ i)) / 10 ^ i < 2 := Nat.div_lt_of_lt_mul (by linarith)
+    omega
+  rw [h2x] at h
+  have h10 : 10 ^ L = 2 * (5 * 10 ^ (L - 1)) := by
+    rw [← mul_assoc, show (2 : ℕ) * 5 = 10 by rfl, ← _root_.pow_succ']
+    congr 1; omega
+  have heven : 2 ∣ 2 * (x / 10 ^ i) + (2 * (x % 10 ^ i)) / 10 ^ i :=
+    (Dvd.intro _ h10.symm).trans h
+  have hc0 : (2 * (x % 10 ^ i)) / 10 ^ i = 0 := by
+    generalize (2 * (x % 10 ^ i)) / 10 ^ i = c at hc heven ⊢
+    generalize x / 10 ^ i = X at heven
+    omega
+  rw [hc0, Nat.add_zero, h10] at h
+  have h5 : 5 * 10 ^ (L - 1) ∣ x / 10 ^ i := Nat.dvd_of_mul_dvd_mul_left (by norm_num) h
+  exact (Dvd.intro_left 5 rfl).trans h5
+
+/-- 반복: u·2^m 의 자리 [i, i+L) 이 0 블록이면, t ≤ m 단계 전 u·2^(m−t) 에도
+길이 L − t 인 0 블록이 같은 자리에 있다. -/
+theorem zero_block_back_iter {u i L m : ℕ} (h : 10 ^ L ∣ (u * 2 ^ m) / 10 ^ i) :
+    ∀ t ≤ m, 10 ^ (L - t) ∣ (u * 2 ^ (m - t)) / 10 ^ i := by
+  intro t
+  induction t with
+  | zero => intro _; simpa using h
+  | succ t ih =>
+    intro ht
+    have h1 := ih (by omega)
+    rcases Nat.lt_or_ge (L - t) 1 with hlt | hge
+    · rw [show L - (t + 1) = 0 by omega]; simp
+    · have heq : u * 2 ^ (m - t) = 2 * (u * 2 ^ (m - (t + 1))) := by
+        rw [show m - t = (m - (t + 1)) + 1 by omega]; ring
+      rw [heq] at h1
+      have := zero_block_back hge h1
+      rwa [show L - t - 1 = L - (t + 1) by omega] at this
