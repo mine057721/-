@@ -1205,3 +1205,19 @@ theorem classes_small_lt (t σ : ℕ) (ht : 1 ≤ t) (hσ : 100 * σ ≤ 29 * t)
     rw [← mul_assoc]; exact Nat.mul_le_mul_right _ (Nat.mul_le_mul_right _ hge)
   have h3 := Nat.mul_le_mul_right (4 ^ σ) h1
   exact absurd ((h2.trans h3).trans_lt key) (lt_irrefl _)
+
+/-! ### 라운드 12: mod p 불변량 경로 (조건부 정리 + 실험상 기각)
+
+mod 7 에서 −1 은 이차잉여가 아니므로 q_k 가 계속 mod 7 이차잉여(1, 2, 4) 이면 7 은 들어오지 않는다.
+하지만 실험(무작위 40–60 자리 시작값, 혼돈 구간 66636 단계)에서 q_k mod p 는 0 아닌 잉여 위에
+거의 균등분포했다 (p = 7: P(q ≡ −1) = 0.164, 이차잉여 비율 0.495). 즉 깊은 깨짐이 한 번이라도
+일어나면 p 가 들어오는 것을 막는 mod p 불변량은 없다. 반증은 결국 깊은 깨짐을 막는 것, 즉
+자릿수 합 하한으로 돌아간다. -/
+
+theorem not_conjecture_of_qr7 {n K : ℕ} (hn : 0 < n)
+    (h : ∀ k ≥ K, (a n k / d n k) % 7 = 1 ∨ (a n k / d n k) % 7 = 2 ∨ (a n k / d n k) % 7 = 4) :
+    ¬ Conjecture :=
+  not_conjecture_of_no_entry (p := 7) hn (by norm_num) fun k hk => by
+    have := h k hk
+    generalize a n k / d n k = q at this ⊢
+    omega
