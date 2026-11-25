@@ -19,6 +19,9 @@ Lean 4.37.0-rc1 + Mathlib master (2026-11) 에서 `sorry` 없이 컴파일됨.
 * `not_conjecture_of_absorbed`: 더 약한 "홀수 부분 흡수" 가정으로도 반례 (p ∤ 2^j+1 인 p).
 * `conjecture_needs_entries` (무조건): 추측이 참이면 모든 n, p 에 대해
   p ∣ a_k/d_k + 1 이 무한히 자주 일어나야 한다.
+* `conjecture_of_entries` (무조건, 일반 p 판정법): G 단계마다 "p 진입(p ∣ a_k/d_k + 1)"
+  또는 "v_p(s_k!) < v_p(a_k)" 가 있으면 limsup v_p(d_k) = ∞. `conjecture_two` 는 G = 1 인 경우.
+* `digit_sum_unbounded` (무조건): 모든 n 에서 limsup s(a_k) = ∞.
 -/
 
 open Nat
@@ -231,7 +234,7 @@ theorem multiplicity_step_of_absorbed {p x : ℕ} (hp : p.Prime)
   have hs : step x ≠ 0 := by unfold step; omega
   have hp2 : ¬ p ∣ 2 ^ j := fun h => h2 0 (by simpa using hp.dvd_of_dvd_pow h)
   have := congrArg (multiplicity p) hj
-  rwa [Nat.multiplicity_mul hs (by positivity), Nat.multiplicity_mul hx.ne' (Nat.succ_ne_zero _),
+  rwa [Nat.multiplicity_mul hs (by positivity), Nat.multiplicity_mul hx.ne' (Nat.add_one_ne_zero _),
     multiplicity_eq_zero_of_not_dvd hp2, multiplicity_eq_zero_of_not_dvd (h2 j),
     Nat.add_zero, Nat.add_zero] at this
 
@@ -293,7 +296,7 @@ theorem multiplicity_succ_le {n p k : ℕ} (hn : 0 < n) (hp : p.Prime)
   have := Fact.mk hp
   have ha0 : a n k ≠ 0 := (a_pos hn k).ne'
   have hd0 : d n k ≠ 0 := (Nat.gcd_pos_of_pos_left _ (a_pos hn k)).ne'
-  rw [a_succ_eq, Nat.multiplicity_mul hd0 (Nat.succ_ne_zero _),
+  rw [a_succ_eq, Nat.multiplicity_mul hd0 (Nat.add_one_ne_zero _),
     multiplicity_eq_zero_of_not_dvd h, Nat.add_zero]
   exact (multiplicity_dvd_iff_le ha0).1 ((pow_multiplicity_dvd _ _).trans (d_dvd_a n k))
 
@@ -411,20 +414,25 @@ theorem s_ge_of_near {x N L : ℕ} (hL : L ≤ N) (h1 : 10 ^ N - 10 ^ L ≤ x) (
     _ = s (x / 10 ^ L) := by rw [hdiv]
     _ ≤ s x := s_div_pow_le L x
 
-theorem two_pow_dvd_factorial (m : ℕ) : 2 ^ m ∣ (2 * m)! := by
+theorem pow_dvd_factorial_mul {p : ℕ} (hp : 0 < p) (m : ℕ) : p ^ m ∣ (p * m)! := by
   induction m with
   | zero => simp
   | succ m ih =>
-    have h : (2 * (m + 1))! = (2 * (m + 1)) * ((2 * m + 1) * (2 * m)!) := by
-      rw [show 2 * (m + 1) = (2 * m + 1) + 1 by ring, Nat.factorial_succ, Nat.factorial_succ]
-    rw [h, pow_succ, mul_comm (2 ^ m) 2]
-    exact Nat.mul_dvd_mul (Dvd.intro _ rfl) (Dvd.dvd.mul_left ih _)
+    have h : (p * (m + 1))! = (p * m + p) * (p * m + p - 1)! := by
+      rw [show p * (m + 1) = (p * m + p - 1) + 1 by rw [Nat.mul_succ]; omega, Nat.factorial_succ,
+        show p * m + p - 1 + 1 = p * m + p by omega]
+    rw [h, pow_succ, mul_comm (p ^ m) p]
+    exact Nat.mul_dvd_mul (Dvd.intro (m + 1) (by ring))
+      (ih.trans (Nat.factorial_dvd_factorial (by omega)))
 
-theorem small_of_v2_le {S B : ℕ} (h : multiplicity 2 S ! ≤ B) : S ≤ 2 * B + 1 := by
+/-- v_p(S!) ≤ B 이면 S < p(B+1). -/
+theorem small_of_vp_le {p S B : ℕ} (hp : p.Prime) (h : multiplicity p S ! ≤ B) :
+    S < p * (B + 1) := by
   by_contra hlt
-  have := Fact.mk Nat.prime_two
-  have h1 : 2 ^ (B + 1) ∣ S ! :=
-    (two_pow_dvd_factorial (B + 1)).trans (Nat.factorial_dvd_factorial (by omega))
+  push Not at hlt
+  have := Fact.mk hp
+  have h1 : p ^ (B + 1) ∣ S ! :=
+    (pow_dvd_factorial_mul hp.pos (B + 1)).trans (Nat.factorial_dvd_factorial hlt)
   have := (multiplicity_dvd_iff_le (Nat.factorial_ne_zero S)).1 h1
   omega
 
@@ -438,66 +446,48 @@ theorem a_ge {n : ℕ} (hn : 0 < n) (k : ℕ) : k ≤ a n k := by
   | zero => exact Nat.zero_le _
   | succ k ih => rw [a_succ_add]; have := d_pos hn k; omega
 
-/-- 경우 A: v₂(a) ≤ v₂(s!) 이면 v₂(a) 가 늘고, v₂(d) = v₂(a). -/
-theorem caseA_step {n k : ℕ} (hn : 0 < n)
-    (h : multiplicity 2 (a n k) ≤ multiplicity 2 (s (a n k))!) :
-    multiplicity 2 (a n k) + 1 ≤ multiplicity 2 (a n (k + 1)) ∧
-      multiplicity 2 (a n k) ≤ multiplicity 2 (d n k) := by
-  have := Fact.mk Nat.prime_two
-  have ha0 : a n k ≠ 0 := (a_pos hn k).ne'
-  have hd0 : d n k ≠ 0 := (d_pos hn k).ne'
-  have hdge : multiplicity 2 (a n k) ≤ multiplicity 2 (d n k) := by
-    have hdvd : 2 ^ multiplicity 2 (a n k) ∣ d n k :=
-      Nat.dvd_gcd (pow_multiplicity_dvd _ _) ((Nat.pow_dvd_pow 2 h).trans (pow_multiplicity_dvd _ _))
-    exact (multiplicity_dvd_iff_le hd0).1 hdvd
-  have hdle : multiplicity 2 (d n k) ≤ multiplicity 2 (a n k) :=
-    (multiplicity_dvd_iff_le ha0).1 ((pow_multiplicity_dvd _ _).trans (d_dvd_a n k))
-  have hq0 : multiplicity 2 (a n k / d n k) = 0 := by
-    rw [Nat.multiplicity_div_of_dvd (d_dvd_a n k)]; omega
-  have hqne : a n k / d n k ≠ 0 :=
-    (Nat.div_pos (Nat.le_of_dvd (a_pos hn k) (d_dvd_a n k)) (d_pos hn k)).ne'
-  have hodd : ¬ 2 ∣ a n k / d n k := by
-    intro h2
-    have := (multiplicity_dvd_iff_le (p := 2) (n := 1) hqne).1 (by simpa using h2)
+/-! ### 자릿수 합이 유계일 수는 없다 -/
+
+/-- 증가량이 유계인 증가 수열은 10^N 바로 아래(999…9 구간)를 밟으므로
+자릿수 합이 계속 C 이하일 수 없다. -/
+theorem no_bounded_digit_sum {n K C : ℕ} (hn : 0 < n) (hS : ∀ k ≥ K, s (a n k) ≤ C) :
+    False := by
+  have hD : ∀ k ≥ K, d n k ≤ C ! := fun k hk =>
+    (Nat.le_of_dvd (Nat.factorial_pos _) (Nat.gcd_dvd_right _ _)).trans
+      (Nat.factorial_le (hS k hk))
+  obtain ⟨L, hL⟩ : ∃ L, L = C ! := ⟨_, rfl⟩
+  have hL10 : C ! ≤ 10 ^ L := hL ▸ (Nat.lt_pow_self (by norm_num)).le
+  obtain ⟨N, hN⟩ : ∃ N, N = L + C + 1 + a n K := ⟨_, rfl⟩
+  have hN10 : a n K < 10 ^ N :=
+    lt_of_lt_of_le (by omega : a n K < N) (Nat.lt_pow_self (by norm_num)).le
+  have hex : ∃ j, 10 ^ N ≤ a n (K + j) :=
+    ⟨10 ^ N, le_trans (by omega) (a_ge hn (K + 10 ^ N))⟩
+  classical
+  obtain ⟨j, hj, hmin⟩ : ∃ j, 10 ^ N ≤ a n (K + j) ∧ ∀ i < j, ¬ 10 ^ N ≤ a n (K + i) :=
+    ⟨Nat.find hex, Nat.find_spec hex, fun i hi => Nat.find_min hex hi⟩
+  have hj0 : j ≠ 0 := by
+    rintro rfl
+    simp only [Nat.add_zero] at hj
     omega
-  have h2q : 2 ^ 1 ∣ a n k / d n k + 1 := by simp; omega
-  have hv := (multiplicity_dvd_iff_le (Nat.succ_ne_zero _)).1 h2q
-  refine ⟨?_, hdge⟩
-  rw [a_succ_eq, Nat.multiplicity_mul hd0 (Nat.succ_ne_zero _)]
+  have hlt : a n (K + (j - 1)) < 10 ^ N := by
+    have := hmin (j - 1) (by omega); omega
+  have hstep : a n (K + j) = a n (K + (j - 1)) + d n (K + (j - 1)) := by
+    rw [show K + j = K + (j - 1) + 1 by omega, a_succ_add]
+  have hdle := hD (K + (j - 1)) (by omega)
+  have hnear : 10 ^ N - 10 ^ L ≤ a n (K + (j - 1)) := by omega
+  have hs := s_ge_of_near (by omega : L ≤ N) hnear hlt
+  have hc := hS (K + (j - 1)) (by omega)
   omega
 
-/-- 경우 B: v₂(s!) < v₂(a) 이면 v₂(s!) ≤ v₂(d). -/
-theorem caseB {n k : ℕ} (hn : 0 < n)
-    (h : multiplicity 2 (s (a n k))! < multiplicity 2 (a n k)) :
-    multiplicity 2 (s (a n k))! ≤ multiplicity 2 (d n k) := by
-  have := Fact.mk Nat.prime_two
-  have hdvd : 2 ^ multiplicity 2 (s (a n k))! ∣ d n k :=
-    Nat.dvd_gcd ((Nat.pow_dvd_pow 2 h.le).trans (pow_multiplicity_dvd _ _))
-      (pow_multiplicity_dvd _ _)
-  exact (multiplicity_dvd_iff_le (d_pos hn k).ne').1 hdvd
-
-/-- v₂(d) ≤ B 가 계속되면 B+2 단계 안에 반드시 경우 B 가 온다. -/
-theorem caseB_soon {n K B : ℕ} (hn : 0 < n) (H : ∀ k ≥ K, multiplicity 2 (d n k) ≤ B)
-    {k : ℕ} (hk : K ≤ k) :
-    ∃ i ≤ B + 1, multiplicity 2 (s (a n (k + i)))! < multiplicity 2 (a n (k + i)) := by
+/-- 따름정리 (무조건): 모든 n 에서 limsup s(a_k) = ∞. -/
+theorem digit_sum_unbounded {n : ℕ} (hn : 0 < n) : ∀ C K : ℕ, ∃ k ≥ K, C < s (a n k) := by
+  intro C K
   by_contra hne
   push Not at hne
-  have hgrow : ∀ i ≤ B + 1, i ≤ multiplicity 2 (a n (k + i)) := by
-    intro i
-    induction i with
-    | zero => intro _; exact Nat.zero_le _
-    | succ i ih =>
-      intro hi
-      have h1 := (caseA_step hn (hne i (by omega))).1
-      have h2 := ih (by omega)
-      rw [← Nat.add_assoc]
-      omega
-  have h1 := hgrow (B + 1) le_rfl
-  have h2 := (caseA_step hn (hne (B + 1) le_rfl)).2
-  have h3 := H (k + (B + 1)) (by omega)
-  omega
+  exact no_bounded_digit_sum hn hne
 
-/-- 자릿수 합 한 단계 상한에 쓰는 단조 함수들. -/
+/-! ### 자릿수 합 한 단계 상한에 쓰는 단조 함수들 -/
+
 def Smax (t : ℕ) : ℕ := (Finset.range (t + 1)).sup s
 def Fb (t : ℕ) : ℕ := t + Smax (t !)
 def Gb (c : ℕ) : ℕ := (Finset.range (c + 1)).sup Fb
@@ -536,53 +526,147 @@ theorem window {n k c : ℕ} (h : s (a n k) ≤ c) (j : ℕ) : s (a n (k + j)) �
     rw [← Nat.add_assoc, Function.iterate_succ_apply']
     exact (s_succ_le n (k + j)).trans (Fb_le_Gb ih)
 
-theorem S_bound {n K B : ℕ} (hn : 0 < n) (H : ∀ k ≥ K, multiplicity 2 (d n k) ≤ B) :
-    ∀ k ≥ K + (B + 1), s (a n k) ≤ Gb^[B + 1] (2 * B + 1) := by
+/-- W 단계마다 한 번씩 자릿수 합이 c 이하이면, 이후 자릿수 합은 항상 유계. -/
+theorem S_bound_gen {n K W c : ℕ} (h : ∀ k ≥ K, ∃ i ≤ W, s (a n (k + i)) ≤ c) :
+    ∀ k ≥ K + W, s (a n k) ≤ Gb^[W] c := by
   intro k hk
-  obtain ⟨i, hi, hcase⟩ := caseB_soon hn H (k := k - (B + 1)) (by omega)
-  have hv := caseB hn hcase
-  have hd := H (k - (B + 1) + i) (by omega)
-  have hS : s (a n (k - (B + 1) + i)) ≤ 2 * B + 1 := small_of_v2_le (by omega)
-  have hw := window hS (B + 1 - i)
-  have heq : k - (B + 1) + i + (B + 1 - i) = k := by omega
-  rw [heq] at hw
+  obtain ⟨i, hi, hs⟩ := h (k - W) (by omega)
+  have hw := window hs (W - i)
+  rw [show k - W + i + (W - i) = k by omega] at hw
   exact hw.trans (Gb_iter_mono (by omega) _)
 
-/-- **정리 (무조건)**: 모든 n ≥ 1 에 대해 limsup_{k→∞} v₂(d_k) = ∞.
-즉 원래 추측은 p = 2 에서 참이다. -/
-theorem conjecture_two {n : ℕ} (hn : 0 < n) :
-    ∀ B K : ℕ, ∃ k ≥ K, B < padicValNat 2 (d n k) := by
-  intro B K
+/-! ### 경우 A / 경우 B (일반 소수 p) -/
+
+/-- 경우 A: v_p(a) ≤ v_p(s!) 이면 v_p(d) = v_p(a), p ∤ q, 그리고
+v_p(a_{k+1}) = v_p(a_k) + v_p(q_k + 1). -/
+theorem caseA_gen {n k p : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (h : multiplicity p (a n k) ≤ multiplicity p (s (a n k))!) :
+    multiplicity p (d n k) = multiplicity p (a n k) ∧
+      multiplicity p (a n (k + 1)) =
+        multiplicity p (a n k) + multiplicity p (a n k / d n k + 1) ∧
+      ¬ p ∣ a n k / d n k := by
+  have := Fact.mk hp
+  have ha0 : a n k ≠ 0 := (a_pos hn k).ne'
+  have hd0 : d n k ≠ 0 := (d_pos hn k).ne'
+  have hdge : multiplicity p (a n k) ≤ multiplicity p (d n k) := by
+    have hdvd : p ^ multiplicity p (a n k) ∣ d n k :=
+      Nat.dvd_gcd (pow_multiplicity_dvd _ _) ((Nat.pow_dvd_pow p h).trans (pow_multiplicity_dvd _ _))
+    exact (multiplicity_dvd_iff_le hd0).1 hdvd
+  have hdle : multiplicity p (d n k) ≤ multiplicity p (a n k) :=
+    (multiplicity_dvd_iff_le ha0).1 ((pow_multiplicity_dvd _ _).trans (d_dvd_a n k))
+  have hq0 : multiplicity p (a n k / d n k) = 0 := by
+    rw [Nat.multiplicity_div_of_dvd (d_dvd_a n k)]; omega
+  have hqne : a n k / d n k ≠ 0 :=
+    (Nat.div_pos (Nat.le_of_dvd (a_pos hn k) (d_dvd_a n k)) (d_pos hn k)).ne'
+  refine ⟨by omega, ?_, ?_⟩
+  · rw [a_succ_eq, Nat.multiplicity_mul hd0 (Nat.add_one_ne_zero _)]
+    omega
+  · intro hpq
+    have := (multiplicity_dvd_iff_le (p := p) (n := 1) hqne).1 (by simpa using hpq)
+    omega
+
+/-- 경우 B: v_p(s!) < v_p(a) 이면 v_p(s!) ≤ v_p(d). -/
+theorem caseB_gen {n k p : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (h : multiplicity p (s (a n k))! < multiplicity p (a n k)) :
+    multiplicity p (s (a n k))! ≤ multiplicity p (d n k) := by
+  have := Fact.mk hp
+  have hdvd : p ^ multiplicity p (s (a n k))! ∣ d n k :=
+    Nat.dvd_gcd ((Nat.pow_dvd_pow p h.le).trans (pow_multiplicity_dvd _ _))
+      (pow_multiplicity_dvd _ _)
+  exact (multiplicity_dvd_iff_le (d_pos hn k).ne').1 hdvd
+
+/-- 경우 A 가 계속되는 구간에서 v_p(a) 는 줄지 않는다. -/
+theorem mono_run {n p k : ℕ} (hn : 0 < n) (hp : p.Prime) (m : ℕ)
+    (hA : ∀ j, k ≤ j → j < k + m → multiplicity p (a n j) ≤ multiplicity p (s (a n j))!) :
+    multiplicity p (a n k) ≤ multiplicity p (a n (k + m)) := by
+  induction m with
+  | zero => exact le_rfl
+  | succ m ih =>
+    have h1 := ih (fun j h1 h2 => hA j h1 (by omega))
+    have h2 := (caseA_gen hn hp (hA (k + m) (by omega) (by omega))).2.1
+    rw [← Nat.add_assoc]
+    omega
+
+/-- 경우 A 이면서 p ∣ q+1 이면 v_p(a) 가 1 이상 증가. -/
+theorem entry_step {n p j : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (hA : multiplicity p (a n j) ≤ multiplicity p (s (a n j))!)
+    (he : p ∣ a n j / d n j + 1) :
+    multiplicity p (a n j) + 1 ≤ multiplicity p (a n (j + 1)) := by
+  have := Fact.mk hp
+  have h1 := (caseA_gen hn hp hA).2.1
+  have h2 := (multiplicity_dvd_iff_le (p := p) (n := 1) (Nat.add_one_ne_zero _)).1
+    (by simpa using he)
+  omega
+
+/-- v_p(d) ≤ B 가 계속되고, G 단계마다 "진입 또는 경우 B" 가 있으면,
+(B+1)·G 단계 안에 반드시 경우 B 가 온다. -/
+theorem caseB_soon_gen {n p G K B : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (hE : ∀ k ≥ K, ∃ i < G, p ∣ a n (k + i) / d n (k + i) + 1 ∨
+      multiplicity p (s (a n (k + i)))! < multiplicity p (a n (k + i)))
+    (H : ∀ k ≥ K, multiplicity p (d n k) ≤ B) {k : ℕ} (hk : K ≤ k) :
+    ∃ i ≤ (B + 1) * G,
+      multiplicity p (s (a n (k + i)))! < multiplicity p (a n (k + i)) := by
   by_contra hne
   push Not at hne
-  have H : ∀ k ≥ K, multiplicity 2 (d n k) ≤ B := fun k hk => by
-    rw [← padicValNat_def]; exact hne k hk
-  obtain ⟨K0, hK0⟩ : ∃ K0, K0 = K + (B + 1) := ⟨_, rfl⟩
-  obtain ⟨C, hC⟩ : ∃ C, C = Gb^[B + 1] (2 * B + 1) := ⟨_, rfl⟩
-  have hS : ∀ k ≥ K0, s (a n k) ≤ C := fun k hk => hC ▸ S_bound hn H k (hK0 ▸ hk)
-  have hD : ∀ k ≥ K0, d n k ≤ C ! := fun k hk =>
-    (Nat.le_of_dvd (Nat.factorial_pos _) (Nat.gcd_dvd_right _ _)).trans
-      (Nat.factorial_le (hS k hk))
-  obtain ⟨L, hL⟩ : ∃ L, L = C ! := ⟨_, rfl⟩
-  have hL10 : C ! ≤ 10 ^ L := hL ▸ (Nat.lt_pow_self (by norm_num)).le
-  obtain ⟨N, hN⟩ : ∃ N, N = L + C + 1 + a n K0 := ⟨_, rfl⟩
-  have hN10 : a n K0 < 10 ^ N :=
-    lt_of_lt_of_le (by omega : a n K0 < N) (Nat.lt_pow_self (by norm_num)).le
-  have hex : ∃ j, 10 ^ N ≤ a n (K0 + j) :=
-    ⟨10 ^ N, le_trans (by omega) (a_ge hn (K0 + 10 ^ N))⟩
-  classical
-  obtain ⟨j, hj, hmin⟩ : ∃ j, 10 ^ N ≤ a n (K0 + j) ∧ ∀ i < j, ¬ 10 ^ N ≤ a n (K0 + i) :=
-    ⟨Nat.find hex, Nat.find_spec hex, fun i hi => Nat.find_min hex hi⟩
-  have hj0 : j ≠ 0 := by
-    rintro rfl
-    simp only [Nat.add_zero] at hj
-    omega
-  have hlt : a n (K0 + (j - 1)) < 10 ^ N := by
-    have := hmin (j - 1) (by omega); omega
-  have hstep : a n (K0 + j) = a n (K0 + (j - 1)) + d n (K0 + (j - 1)) := by
-    rw [show K0 + j = K0 + (j - 1) + 1 by omega, a_succ_add]
-  have hdle := hD (K0 + (j - 1)) (by omega)
-  have hnear : 10 ^ N - 10 ^ L ≤ a n (K0 + (j - 1)) := by omega
-  have hs := s_ge_of_near (by omega : L ≤ N) hnear hlt
-  have hc := hS (K0 + (j - 1)) (by omega)
+  have hA : ∀ j, k ≤ j → j ≤ k + (B + 1) * G →
+      multiplicity p (a n j) ≤ multiplicity p (s (a n j))! := fun j h1 h2 => by
+    have := hne (j - k) (by omega)
+    rwa [show k + (j - k) = j by omega] at this
+  have hgrow : ∀ t ≤ B + 1, t ≤ multiplicity p (a n (k + t * G)) := by
+    intro t
+    induction t with
+    | zero => intro _; exact Nat.zero_le _
+    | succ t ih =>
+      intro ht
+      have ih' := ih (by omega)
+      have hG1 : (t + 1) * G = t * G + G := by ring
+      have hG2 : (t + 1) * G ≤ (B + 1) * G := Nat.mul_le_mul_right _ ht
+      obtain ⟨i, hi, hent⟩ := hE (k + t * G) (by omega)
+      rcases hent with hent | hent
+      · have m1 := mono_run hn hp (k := k + t * G) i
+          (fun j h1 h2 => hA j (by omega) (by omega))
+        have e := entry_step hn hp (hA _ (by omega) (by omega)) hent
+        have m2 := mono_run hn hp (k := k + t * G + i + 1) (G - i - 1)
+          (fun j h1 h2 => hA j (by omega) (by omega))
+        rw [show k + t * G + i + 1 + (G - i - 1) = k + (t + 1) * G by omega] at m2
+        omega
+      · have := hA (k + t * G + i) (by omega) (by omega)
+        omega
+  have h1 := hgrow (B + 1) le_rfl
+  have h2 := (caseA_gen hn hp (hA (k + (B + 1) * G) (by omega) le_rfl)).1
+  have h3 := H (k + (B + 1) * G) (by omega)
   omega
+
+/-- **일반 판정법 (무조건)**: 어떤 G, K 에 대해, k ≥ K 부터 G 단계마다 적어도 한 번
+"p ∣ a_k/d_k + 1 (p 진입)" 이거나 "v_p(s_k!) < v_p(a_k) (경우 B)" 이면
+limsup v_p(d_k) = ∞. -/
+theorem conjecture_of_entries {n p G K : ℕ} (hn : 0 < n) (hp : p.Prime)
+    (hE : ∀ k ≥ K, ∃ i < G, p ∣ a n (k + i) / d n (k + i) + 1 ∨
+      multiplicity p (s (a n (k + i)))! < multiplicity p (a n (k + i))) :
+    ∀ B K' : ℕ, ∃ k ≥ K', B < padicValNat p (d n k) := by
+  intro B K'
+  by_contra hne
+  push Not at hne
+  have H : ∀ k ≥ max K K', multiplicity p (d n k) ≤ B := fun k hk => by
+    rw [← padicValNat_def]; exact hne k (by omega)
+  have hE' : ∀ k ≥ max K K', ∃ i < G, p ∣ a n (k + i) / d n (k + i) + 1 ∨
+      multiplicity p (s (a n (k + i)))! < multiplicity p (a n (k + i)) :=
+    fun k hk => hE k (by omega)
+  have hsmall : ∀ k ≥ max K K', ∃ i ≤ (B + 1) * G, s (a n (k + i)) ≤ p * (B + 1) := by
+    intro k hk
+    obtain ⟨i, hi, hB⟩ := caseB_soon_gen hn hp hE' H hk
+    exact ⟨i, hi, (small_of_vp_le hp ((caseB_gen hn hp hB).trans (H _ (by omega)))).le⟩
+  exact no_bounded_digit_sum hn (S_bound_gen hsmall)
+
+/-- **정리 (무조건)**: 모든 n ≥ 1 에 대해 limsup_{k→∞} v₂(d_k) = ∞.
+즉 원래 추측은 p = 2 에서 참이다. (판정법에서 G = 1: 경우 A 이면 q 가 홀수라 2 ∣ q+1.) -/
+theorem conjecture_two {n : ℕ} (hn : 0 < n) :
+    ∀ B K : ℕ, ∃ k ≥ K, B < padicValNat 2 (d n k) :=
+  conjecture_of_entries (G := 1) (K := 0) hn Nat.prime_two fun k _ => ⟨0, by omega, by
+    by_cases h : multiplicity 2 (s (a n (k + 0)))! < multiplicity 2 (a n (k + 0))
+    · exact Or.inr h
+    · left
+      push Not at h
+      have := (caseA_gen hn Nat.prime_two h).2.2
+      generalize a n (k + 0) / d n (k + 0) = q at this ⊢
+      omega⟩
